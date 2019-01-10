@@ -2,99 +2,97 @@ package minidatabase;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.util.Arrays;
 
 class PageFileManager{
     
     static final boolean APPEND = true;
     static final boolean NOT_APPEND = false;
+    
     static final int NO_PAGE = -1;
+    static final int INT_SIZE = 4;
     static final int PAGE_SIZE = 4096;
     
-    private int readPageCounter;
-    private int writePageCounter;
-    private int appendPageCounter;
-    
-    private static final PageFileManager instance = new PageFileManager();
-    
-    private PageFileManager() {}
-    
-    public static PageFileManager getPageFileManager() {
-        return instance;
+    public static void readPage(FileHandle handle, int pageNumber, byte[] data){
+        executePageOperation(handle, "read", pageNumber, data);
+        handle.incrementReadCounter();
     }
     
-    boolean createFile(String fileName){
-        File newFile = new File( System.getProperty("user.dir") + '\\' + fileName);
-        try{
-            newFile.createNewFile();
-            return true;
-        }
-        catch(IOException e) {
-            System.out.println("Unable to create file");
-            return true;
-        }
+    public static void writePage(FileHandle handle, int pageNumber, byte[] data){
+        executePageOperation(handle, "write", pageNumber, data);
+        handle.incrementWriteCounter();
     }
     
-    boolean deleteFile(File file) {
-        if (file.exists()) { 
-            file.delete();
-            return true;
-        }
-        else {
-            System.out.println("Paged file manager does not have a file");
-            return false;
-        }
+    public static void appendPage(FileHandle handle) {
+        executePageOperation(handle, "append", NO_PAGE, new byte[PAGE_SIZE]);
+        handle.incrementWriteCounter();
     }
     
-    //a page represents 4096 contiguous bytes in a Java file
-    void readPage(File file, int pageNumber, byte[] data){
-        executePageOperation(file, "read", pageNumber, data);
-        readPageCounter++;
-    }
+    //static helper methods
     
-    void writePage(File file, int pageNumber, byte[] data){
-        executePageOperation(file, "write", pageNumber, data);
-        writePageCounter++;
-    }
-    
-    void appendPage(File file) {
-        executePageOperation(file, "append", NO_PAGE, new byte[PAGE_SIZE]);
-        appendPageCounter++;
-    }
-    
-    int getNumberOfPages() {
-        return appendPageCounter;
-    }
-    
-    void collectCounterValues(Integer readPageCount, Integer writePageCount,
-                              Integer appendPageCount) {
-        readPageCount = readPageCounter;
-        writePageCount = writePageCounter;
-        appendPageCount = appendPageCounter;
+    public static int calculatePageLocation(int pageNumber) {
+        return pageNumber * PAGE_SIZE;
     }
     
     //private helper methods
     
-    private boolean pageDoesNotExist(File file, int pageNumber) {
+    static byte[] readFromPage(FileHandle handle, int pageNumber, int start, int end)
+                        throws FileNotFoundException{
+        byte [] page = null;
+        readPage(handle, pageNumber, page);
+        byte[] dataRead = Arrays.copyOfRange(page, start, end);
+        return dataRead; 
+        }
+    
+    static int readIntFromPage(FileHandle handle, int pageNumber, int start)
+                        throws FileNotFoundException{
+        byte[] numberAsByteArray = readFromPage(handle, pageNumber, start,
+                                                start + INT_SIZE);
+        return new BigInteger(numberAsByteArray).intValue();
+    }
+    
+    static void writeToPage(FileHandle handle, int pageNumber, 
+                            int targetLocation, byte[] entity) 
+                            throws FileNotFoundException{
+        byte[] copy = null;
+        PageFileManager.readPage(handle, pageNumber, copy);
+        writeEntityIntoCopy(handle, targetLocation, entity, copy);
+        PageFileManager.writePage(handle, pageNumber, copy);
+    }
+    
+    static void writeEntityIntoCopy(FileHandle handle, 
+                                            int targetLocation,
+                                            byte[] entity, byte[] copy) 
+                                            throws FileNotFoundException{
+        System.arraycopy(entity, 0, copy, targetLocation, entity.length);
+    }
+    
+    static boolean pageDoesNotExist(FileHandle handle, int pageNumber){
+        File file = handle.getFile();
         if (pageNumberIsNegative(pageNumber))
-            return false;
+            return true;
         return ( (file.length() / PAGE_SIZE) > pageNumber);
     }
     
-    private boolean pageNumberIsNegative(int pageNumber) {
+    static boolean pageNumberIsNegative(int pageNumber) {
         return pageNumber < 0;
     }
     
-    private void executePageOperation(File file, String operationType, 
-                                      int pageNumber, byte[] data) {
+    //private helper method
+    static void executePageOperation(FileHandle handle,
+                                             String operationType, 
+                                             int pageNumber, byte[] data) {
+        File file = handle.getFile();
         int startOfPage = pageNumber * PAGE_SIZE;
-        try (FileInputStream input = new FileInputStream(file);
+        try (FileInputStream  input  = new FileInputStream(file);
              FileOutputStream output = new FileOutputStream(file)
             ){
-            if (operationType != "append" && pageDoesNotExist(file, pageNumber
-                                                             )){
+            if (operationType != "append" && 
+                pageDoesNotExist(handle, pageNumber)){
                 System.out.println("Page " + pageNumber + "does not exist" +
                                     "in file " + file + ".");
                 return;
